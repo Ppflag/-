@@ -1,0 +1,14 @@
+{
+  "name": "canteen-fit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "食堂搭子 —— 面向大学生宿舍减脂的 AI 应用（零依赖）",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/engine.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
