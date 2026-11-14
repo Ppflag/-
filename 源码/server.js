@@ -1,13 +1,3 @@
-const express = require('express');
-
-const app = express();
-
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public/index.html'));
-});
 // server.js —— 零依赖 Node 服务：静态托管 + AI 接口代理
 // 运行：node server.js   （Node 18+，无需 npm install）
 //
@@ -905,8 +895,20 @@ function lanUrls(port) {
   return out;
 }
 
-
-
-app.listen(PORT, () => {
-  console.log(`服务启动，端口 ${PORT}`);
+await loadDotEnv();
+server.listen(PORT, '0.0.0.0', () => {
+  const cfg = aiConfig();
+  const on = Boolean(cfg.base && cfg.key && cfg.model);
+  console.log('');
+  console.log('  轻宿已启动');
+  console.log(`  电脑访问：http://localhost:${PORT}`);
+  const lan = lanUrls(PORT);
+  if (lan.length) {
+    console.log('  手机访问（需连同一个 Wi-Fi）：');
+    for (const it of lan) console.log(`    ${it.url}   ← ${it.name}`);
+  } else {
+    console.log('  没检测到局域网地址，手机请用内网穿透或热点');
+  }
+  console.log(on ? `  AI 已接入：${cfg.model}` : '  AI 暂不可用，拍照/解析返回示例数据（本地模式）');
+  console.log('');
 });
