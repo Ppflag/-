@@ -32,11 +32,12 @@
 ### 1. 准备
 
 ```bash
-# 在项目根目录打包（不含 .env，密钥靠环境变量）
-cd canteen-fit
+# 在项目根目录打包；不要把 .env、data、shots 打进上传包
+cd 项目根目录
 ```
 
-项目里已经有 `Dockerfile` 和 `.dockerignore`，`.dockerignore` 明确排除了 `.env`，**密钥不会进镜像**。
+项目里已经有 `Dockerfile` 和 `.dockerignore`。`.env`、`data/`、截图、测试和 Vercel 文件不会进镜像。
+当前 `server.js` 内置了 DeepSeek key；如果代码仓库是公开的，请先把仓库设为 Private 或改用 `AI_API_KEY` 环境变量。
 
 ### 2. 开通
 
@@ -55,18 +56,35 @@ cd canteen-fit
 
 | 项 | 值 |
 |---|---|
-| 端口 | `3000` |
+| 容器端口 / 服务端口 | `80` |
+| 构建目录 | 项目根目录（有 `Dockerfile`、`package.json`、`public/` 的那一层） |
+| 启动命令 | `npm start`（Dockerfile 已设置，通常不用再填） |
 | 健康检查路径 | `/api/health` |
-| 最小实例数 | `1`（**别设 0**，否则冷启动要等 30 秒） |
+| 最小实例数 | `1`（别设 0，否则冷启动要等） |
 | CPU / 内存 | 0.25 核 / 0.5G 够用 |
 
-### 4. 环境变量（在这里填密钥，不要写进代码）
+> 端口不要填 3000。Dockerfile 已设置 `ENV PORT=80`，`server.js` 读取 `process.env.PORT`，云托管把流量转到 80。
+> 如果平台强制注入其他 `PORT`，以平台环境变量为准，不需要改代码。
 
-```
-AI_BASE_URL = https://dashscope.aliyuncs.com/compatible-mode/v1
+### 4. 环境变量
+
+默认已经内置 DeepSeek Flash，不填也能用。要覆盖时再设置：
+
+```text
+AI_BASE_URL = https://api.deepseek.com
 AI_API_KEY  = sk-你的密钥
-AI_MODEL    = qwen3-vl-plus
+AI_MODEL    = deepseek-flash
+COOKIE_SECURE = 1
 ```
+
+`COOKIE_SECURE=1` 用于 CloudBase 的 HTTPS 域名；本地 http 调试不要设置。
+
+账号持久化二选一：
+
+- **CloudBase 持久存储 / CFS 挂载到 `/app/data`**，再设置 `DATA_DIR=/app/data`
+- 或使用 Upstash Redis，设置 `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`
+
+不配置持久存储也能打开，但容器重启后账号会丢失。
 
 ### 5. 拿地址
 
@@ -82,8 +100,24 @@ https://xxxx-xxxx.sh.run.tcloudbase.com
 
 ```bash
 curl https://你的域名/api/health
-# 期望：{"ok":true,"ai":true,"model":"qwen3-vl-plus"}
+# 期望：{"ok":true,"ai":true,"model":"deepseek-flash"}
+
+curl -I https://你的域名/
+# 期望：200，Content-Type: text/html; charset=utf-8
 ```
+
+打开首页应直接显示「轻宿」页面，而不是源码或乱码。
+
+### 7. 常见失败排查
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 打开是源码 / 下载文件 | 静态目录没有复制进镜像，或入口不是 `server.js` | 确认 Dockerfile 复制了 `public`，并执行 `npm start` |
+| 页面乱码 | 响应缺少 UTF-8 或文件被二次编码 | 当前 `server.js` 的 MIME 已带 `charset=utf-8`，重新构建镜像 |
+| 502 / 连接拒绝 | 容器没有监听平台端口 | 服务端口填 `80`；Dockerfile 已设置 `PORT=80` |
+| 首页 404 | 构建目录选错 | 构建目录选项目根目录，不是 `public` |
+| 登录后马上掉线 | 容器重启，内存会话丢失 | 挂 CFS 到 `/app/data` 并设 `DATA_DIR=/app/data`，或配 Redis |
+| AI 报错 | key 失效/余额不足 | 看容器日志；页面会自动降级本地回复 |
 
 然后**用手机微信打开这个域名**，走一遍全流程。
 
@@ -271,3 +305,41 @@ node server.js
 - 膳食 AI 的本地降级文案在 `public/health-chat.js`；运动 AI 的本地降级在 `public/app.js`
 
 > 生产环境建议把 key 改回环境变量，不要长期硬编码在源码里。
+
+---
+
+## Vercel 部署（v2.0）
+
+Vercel 无持久磁盘，原 `data/users.json` 不能用于线上账号。项目已经补上：
+
+- `vercel.json`：静态目录 `public` + `api/*.js` Serverless 函数
+- `api/[...path].js`：把 `/api/*` 转交给现有 `handleRequest`
+- `auth.js`：检测到 Upstash Redis 环境变量时，自动把用户和会话存 Redis；本地仍写 JSON
+
+### 步骤
+
+1. 把项目推到 GitHub。
+2. Vercel Dashboard → **Storage / Marketplace** → 创建 **Upstash Redis**，连接到该项目。
+3. Vercel → **Add New Project** → 导入 GitHub 仓库。
+4. 如果项目不在仓库根目录，设置 **Root Directory**。
+5. Framework Preset 选 **Other**；Build Command 和 Output Directory 会从 `vercel.json` 读取：
+   - Build Command: `node tools/build.mjs`
+   - Output Directory: `public`
+6. 确认环境变量中出现 `UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`（或 `KV_REST_API_URL`、`KV_REST_API_TOKEN`）。
+7. Deploy，拿到 `https://<project>.vercel.app`。
+
+### 说明
+
+- `server.js` 内置 DeepSeek key，不需要在 Vercel 再填 AI key；需要换 key 时加 `AI_API_KEY` 环境变量覆盖。
+- 线上 Cookie 会自动带 `Secure`（Vercel 环境）。
+- 不配 Redis 也能打开页面，但账号会在冷启动/重新部署后丢失，不建议这样上线。
+- AI 接口是 SSE 流式响应；Vercel Hobby 的冷启动和 60 秒上限可能导致第一次回复稍慢，失败时会自动使用本地科普回复。
+- 如果你的 Vercel 账号在国内访问不稳定，优先考虑国内云托管或 Render/Railway 的 Docker + 持久盘方案。
+
+### 本地继续运行
+
+```bash
+node server.js
+```
+
+本地没有 Redis 时仍使用 `data/users.json`，行为与之前一致。

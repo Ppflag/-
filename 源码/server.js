@@ -47,7 +47,7 @@ async function loadDotEnv() {
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const auth = createAuth({ dir: DATA_DIR });
-const secureCookie = Boolean(process.env.COOKIE_SECURE);
+const secureCookie = Boolean(process.env.COOKIE_SECURE || process.env.VERCEL);
 
 /** 这些接口不需要登录 */
 const AUTH_FREE = new Set([
@@ -225,12 +225,12 @@ async function apiAuth(req, res, url) {
   const sid = sessionIdFrom(req);
 
   if (url === '/api/auth/me') {
-    const user = auth.sessionUser(sid);
+    const user = await auth.sessionUser(sid);
     return user ? send(res, 200, { ok: true, user }) : send(res, 401, { ok: false, error: '未登录' });
   }
 
   if (url === '/api/auth/logout') {
-    auth.destroySession(sid);
+    await auth.destroySession(sid);
     return send(res, 200, { ok: true }, 'application/json; charset=utf-8', { 'Set-Cookie': clearCookie() });
   }
 
@@ -240,7 +240,7 @@ async function apiAuth(req, res, url) {
   try {
     if (url === '/api/auth/register') {
       const user = await auth.register(body.username, body.password);
-      const newSid = auth.createSession(user.id);
+      const newSid = await auth.createSession(user.id);
       return send(res, 200, { ok: true, user, token: newSid }, 'application/json; charset=utf-8', {
         'Set-Cookie': sessionCookie(newSid, { secure: secureCookie }),
       });
@@ -248,7 +248,7 @@ async function apiAuth(req, res, url) {
     if (url === '/api/auth/login') {
       const user = await auth.verify(body.username, body.password);
       if (!user) return send(res, 401, { ok: false, error: '用户名或密码不对' });
-      const newSid = auth.createSession(user.id);
+      const newSid = await auth.createSession(user.id);
       return send(res, 200, { ok: true, user, token: newSid }, 'application/json; charset=utf-8', {
         'Set-Cookie': sessionCookie(newSid, { secure: secureCookie }),
       });
@@ -831,7 +831,7 @@ async function serveStatic(req, res) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   const url = (req.url || '/').split('?')[0];
   try {
     // 登录相关
@@ -839,7 +839,7 @@ const server = http.createServer(async (req, res) => {
 
     // 其余接口一律要登录，防止公开链接被刷额度
     if (url.startsWith('/api/') && !AUTH_FREE.has(url)) {
-      const user = auth.sessionUser(sessionIdFrom(req));
+      const user = await auth.sessionUser(sessionIdFrom(req));
       if (!user) return send(res, 401, { ok: false, error: '请先登录' });
     }
 
@@ -883,7 +883,9 @@ const server = http.createServer(async (req, res) => {
     console.error('[error]', e);
     send(res, 500, { ok: false, error: String(e.message || e) });
   }
-});
+}
+
+const server = http.createServer(handleRequest);
 
 function lanUrls(port) {
   const out = [];
@@ -896,19 +898,23 @@ function lanUrls(port) {
 }
 
 await loadDotEnv();
-server.listen(PORT, '0.0.0.0', () => {
-  const cfg = aiConfig();
-  const on = Boolean(cfg.base && cfg.key && cfg.model);
-  console.log('');
-  console.log('  轻宿已启动');
-  console.log(`  电脑访问：http://localhost:${PORT}`);
-  const lan = lanUrls(PORT);
-  if (lan.length) {
-    console.log('  手机访问（需连同一个 Wi-Fi）：');
-    for (const it of lan) console.log(`    ${it.url}   ← ${it.name}`);
-  } else {
-    console.log('  没检测到局域网地址，手机请用内网穿透或热点');
-  }
-  console.log(on ? `  AI 已接入：${cfg.model}` : '  AI 暂不可用，拍照/解析返回示例数据（本地模式）');
-  console.log('');
-});
+if (!process.env.VERCEL) {
+  server.listen(PORT, '0.0.0.0', () => {
+    const cfg = aiConfig();
+    const on = Boolean(cfg.base && cfg.key && cfg.model);
+    console.log('');
+    console.log('  轻宿已启动');
+    console.log(`  电脑访问：http://localhost:${PORT}`);
+    const lan = lanUrls(PORT);
+    if (lan.length) {
+      console.log('  手机访问（需连同一个 Wi-Fi）：');
+      for (const it of lan) console.log(`    ${it.url}   ← ${it.name}`);
+    } else {
+      console.log('  没检测到局域网地址，手机请用内网穿透或热点');
+    }
+    console.log(on ? `  AI 已接入：${cfg.model}` : '  AI 暂不可用，拍照/解析返回示例数据（本地模式）');
+    console.log('');
+  });
+}
+
+export { handleRequest };
