@@ -906,7 +906,7 @@ function lanUrls(port) {
 }
 
 
-const PORT = 3000;
+
 app.listen(PORT, () => {
   console.log(`服务启动，端口 ${PORT}`);
 });
