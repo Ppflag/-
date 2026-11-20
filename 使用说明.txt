@@ -1,0 +1,37 @@
+轻宿 · 宿舍减脂助手 —— 运行说明
+================================
+
+一、启动（3 步）
+1. 安装 Node.js 18 或更高版本：https://nodejs.org/ （一路「下一步」即可）
+2. 双击本文件夹里的「启动.bat」；
+   或者在文件夹地址栏输入 cmd 回车，执行：node server.js
+3. 浏览器打开：http://localhost:3000
+
+首次进入先点「注册」：用户名 2–20 位（可用中文），密码至少 6 位。
+
+二、手机查看（可选）
+手机和电脑连同一个 Wi-Fi，用 http://电脑内网IP:3000 打开。
+电脑内网 IP 可在启动后的黑窗口里看到（形如 192.168.x.x）。
+
+三、关于 AI 拍照识别
+- 本压缩包不含 .env（里面有密钥，不能外传）。
+  要启用识别：把 .env.example 复制一份改名 .env，填入 DEEPSEEK_API_KEY，重启。
+- DeepSeek 的模型名必须是 deepseek-flash，它是目前唯一接受图片的模型。
+- 账户余额为 0 时，拍照会明确提示「余额不足」，不会返回假数据；
+  到 platform.deepseek.com 充值后立即生效，不用改代码。
+- 不想充值也可以用免费的智谱 glm-4v-flash，把 .env 改成：
+
+  DEEPSEEK_API_KEY=
+  AI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+  AI_API_KEY=你的智谱key
+  AI_MODEL=glm-4v-flash
+  AI_VISION_MODEL=glm-4v-flash
+
+四、目录说明
+server.js        后端：静态托管 + AI 接口（零依赖）
+public/          前端页面（index.html、app.js、样式、内置菜库）
+auth.js          注册登录（PBKDF2 加盐，会话存内存）
+api/             Vercel Serverless 入口（本地运行用不到）
+test/            自测脚本：node test/engine.test.mjs
+tools/           构建与截图工具
+deploy.md        部署到云托管 / 服务器的步骤
